@@ -1,126 +1,113 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from babyscan.scanner import scan_port
-import socket
 import argparse
-import sys
+import json
+from datetime import datetime
 
-COMMON_SERVICES = {
-    8000: "http-alt",
-    8080: "http-proxy",
-    8443: "https-alt",
-    3306: "mysql",
-    5432: "postgresql",
-    6379: "redis",
-}
+from babyscan.discovery import arp_scan
+from babyscan.scanner import scan_hosts
+from babyscan.sniffer import sniff_traffic
 
 
-parser = argparse.ArgumentParser(
-    description="BabyScan - Multi-threaded Port Scanner"
-)
+def print_packet(info: dict) -> None:
+    src = f"{info['src']}:{info['sport']}" if info["sport"] else info["src"]
+    dst = f"{info['dst']}:{info['dport']}" if info["dport"] else info["dst"]
 
-parser.add_argument(
-    "target",
-    help="Target IP address or hostname"
-)
+    print(f"{info['time']}  {info['proto'] or '-':5} {src} -> {dst}  {info['length']}B")
 
-parser.add_argument(
-    "-p",
-    "--ports",
-    default="1-1024",
-    help="Port range (example: 1-1024)"
-)
-
-parser.add_argument(
-    "-t",
-    "--threads",
-    type=int,
-    default=100,
-    help="Number of worker threads (default: 100)"
-)
-
-args = parser.parse_args()
-
-TARGET = args.target
-MAX_WORKERS = args.threads
-
-try:
-    START_PORT, END_PORT = map(int, args.ports.split("-"))
-
-    if START_PORT < 1 or END_PORT > 65535 or START_PORT > END_PORT:
-        raise ValueError
-
-except ValueError:
-    print("Invalid port range. Example: 1-1024")
-    sys.exit(1)
+    if info["payload"]:
+        printable = bytes.fromhex(info["payload"]).decode(errors="ignore").strip()
+        if printable:
+            print(f"    {printable[:80]}")
 
 
-def get_service_name(port):
-    try:
-        return socket.getservbyport(port)
-    except OSError:
-        return COMMON_SERVICES.get(port, "unknown")
+def parse_ports(port_range: str) -> list[int]:
+    if "," in port_range:
+        return [int(p.strip()) for p in port_range.split(",")]
+
+    if "-" in port_range:
+        start, end = port_range.split("-")
+        return list(range(int(start), int(end) + 1))
+
+    return [int(port_range)]
 
 
-def check_port(port):
-    if scan_port(TARGET, port):
-        service = get_service_name(port)
-        return port, service
+def build_report(devices: list[dict], scan_results: dict[str, list[dict]]) -> dict:
+    return {
+        "scan_timestamp": datetime.now().isoformat(),
+        "devices": [
+            {
+                "ip": device["ip"],
+                "mac": device["mac"],
+                "open_ports": scan_results.get(device["ip"], []),
+            }
+            for device in devices
+        ],
+    }
 
-    return None
+
+def print_report(report: dict) -> None:
+    for device in report["devices"]:
+        print(f"\n{device['ip']:15} {device['mac']}")
+
+        if device["open_ports"]:
+            for p in device["open_ports"]:
+                print(f"    {p['port']}/tcp  {p['service']}")
+                if p.get("banner"):
+                    print(f"        {p['banner'][:80]}")
+        else:
+            print("    no open ports")
 
 
 def main():
-    print("Starting BabyScan...")
-    print(f"Target: {TARGET}")
+    parser = argparse.ArgumentParser(description="BabyScan - ARP discovery + port scan")
+    parser.add_argument("network", help="Target network CIDR, e.g. 192.168.1.0/24")
+    parser.add_argument("-p", "--ports", default="1-1000", help="Port range (default: 1-1000)")
+    parser.add_argument("-t", "--threads", type=int, default=100, help="Threads per host (default: 100)")
+    parser.add_argument("--export", help="Export results to JSON file")
+    parser.add_argument("--no-banners", action="store_true", help="Skip banner grabbing (faster)")
+    parser.add_argument("--sniff", action="store_true", help="Sniff live traffic from discovered devices (Ctrl+C to stop)")
+    parser.add_argument("--iface", help="Interface for sniffing (default: auto)")
 
-    try:
-        resolved_ip = socket.gethostbyname(TARGET)
-        print(f"Resolved IP: {resolved_ip}")
-    except socket.gaierror:
-        print("Failed to resolve target hostname.")
+    args = parser.parse_args()
+
+    print(f"Scanning {args.network}")
+    devices = arp_scan(args.network)
+
+    if not devices:
+        print("No devices found.")
         return
 
-    print(f"Scanning ports {START_PORT}-{END_PORT}")
-    print(f"Threads: {MAX_WORKERS}")
-    print("-" * 50)
+    print(f"Found {len(devices)} device(s).")
+    hosts = [d["ip"] for d in devices]
 
-    total_ports = END_PORT - START_PORT + 1
-    completed = 0
-    open_ports = []
+    if args.sniff:
+        print(f"Sniffing traffic from {len(hosts)} device(s). Press Ctrl+C to stop.\n")
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(check_port, port): port
-            for port in range(START_PORT, END_PORT + 1)
-        }
+        try:
+            packets = sniff_traffic(hosts, iface=args.iface, on_packet=print_packet)
+        except KeyboardInterrupt:
+            packets = []
 
-        for future in as_completed(futures):
-            completed += 1
+        print(f"\nCaptured {len(packets)} packet(s).")
 
-            print(
-                f"\rProgress: {completed}/{total_ports}",
-                end="",
-                flush=True
-            )
+        if args.export:
+            with open(args.export, "w") as f:
+                json.dump(packets, f, indent=2)
+            print(f"Exported to {args.export}")
 
-            result = future.result()
+        return
 
-            if result:
-                port, service = result
-                open_ports.append((port, service))
-                print(f"\n[OPEN] {port}/tcp ({service})")
+    print(f"Scanning ports {args.ports}...")
 
-    print("\n" + "-" * 50)
+    ports = parse_ports(args.ports)
+    scan_results = scan_hosts(hosts, ports, args.threads, banners=not args.no_banners)
 
-    if open_ports:
-        print("Open ports discovered:")
-        for port, service in sorted(open_ports):
-            print(f"  {port}/tcp -> {service}")
-    else:
-        print("No open ports found.")
+    report = build_report(devices, scan_results)
+    print_report(report)
 
-    print("-" * 50)
-    print("Scan complete.")
+    if args.export:
+        with open(args.export, "w") as f:
+            json.dump(report, f, indent=2)
+        print(f"\nExported to {args.export}")
 
 
 if __name__ == "__main__":
