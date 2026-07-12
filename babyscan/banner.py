@@ -1,7 +1,7 @@
 import socket
 
 
-def grab_banner(host: str, port: int, timeout: float = 1.0) -> str:
+def grab_banner(host: str, port: int, timeout: float = 2.5) -> str:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)

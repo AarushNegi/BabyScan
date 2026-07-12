@@ -5,6 +5,15 @@ from datetime import datetime
 from babyscan.discovery import arp_scan
 from babyscan.scanner import scan_hosts
 from babyscan.sniffer import sniff_traffic
+from babyscan.arp_guard import build_baseline, watch_arp
+from babyscan.cve import enrich_with_cves
+
+
+def print_alert(alert: dict) -> None:
+    print(
+        f"[ALERT] {alert['time']}  {alert['ip']} MAC changed: "
+        f"{alert['expected_mac']} -> {alert['seen_mac']}  (possible ARP spoofing)"
+    )
 
 
 def print_packet(info: dict) -> None:
@@ -53,6 +62,8 @@ def print_report(report: dict) -> None:
                 print(f"    {p['port']}/tcp  {p['service']}")
                 if p.get("banner"):
                     print(f"        {p['banner'][:80]}")
+                for cve in p.get("cves", []):
+                    print(f"        ! {cve['id']}  severity={cve['severity']}  score={cve['score']}")
         else:
             print("    no open ports")
 
@@ -66,6 +77,8 @@ def main():
     parser.add_argument("--no-banners", action="store_true", help="Skip banner grabbing (faster)")
     parser.add_argument("--sniff", action="store_true", help="Sniff live traffic from discovered devices (Ctrl+C to stop)")
     parser.add_argument("--iface", help="Interface for sniffing (default: auto)")
+    parser.add_argument("--watch-arp", action="store_true", help="Watch for ARP spoofing (Ctrl+C to stop)")
+    parser.add_argument("--cve", action="store_true", help="Look up known CVEs for detected service versions (slower, needs internet)")
 
     args = parser.parse_args()
 
@@ -78,6 +91,18 @@ def main():
 
     print(f"Found {len(devices)} device(s).")
     hosts = [d["ip"] for d in devices]
+
+    if args.watch_arp:
+        baseline = build_baseline(devices)
+        print(f"Baseline established for {len(baseline)} device(s). Watching for ARP spoofing. Press Ctrl+C to stop.\n")
+
+        try:
+            watch_arp(baseline, iface=args.iface, on_alert=print_alert)
+        except KeyboardInterrupt:
+            pass
+
+        print("\nStopped watching.")
+        return
 
     if args.sniff:
         print(f"Sniffing traffic from {len(hosts)} device(s). Press Ctrl+C to stop.\n")
@@ -100,6 +125,10 @@ def main():
 
     ports = parse_ports(args.ports)
     scan_results = scan_hosts(hosts, ports, args.threads, banners=not args.no_banners)
+
+    if args.cve:
+        print("Looking up CVEs for detected services (this can take a while)...")
+        scan_results = enrich_with_cves(scan_results)
 
     report = build_report(devices, scan_results)
     print_report(report)
