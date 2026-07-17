@@ -7,6 +7,7 @@ from babyscan.scanner import scan_hosts
 from babyscan.sniffer import sniff_traffic
 from babyscan.arp_guard import build_baseline, watch_arp
 from babyscan.cve import enrich_with_cves
+from babyscan.hostname import resolve_hostnames
 
 
 def print_alert(alert: dict) -> None:
@@ -46,6 +47,7 @@ def build_report(devices: list[dict], scan_results: dict[str, list[dict]]) -> di
             {
                 "ip": device["ip"],
                 "mac": device["mac"],
+                "hostname": device.get("hostname", "unknown"),
                 "open_ports": scan_results.get(device["ip"], []),
             }
             for device in devices
@@ -55,7 +57,11 @@ def build_report(devices: list[dict], scan_results: dict[str, list[dict]]) -> di
 
 def print_report(report: dict) -> None:
     for device in report["devices"]:
-        print(f"\n{device['ip']:15} {device['mac']}")
+        label = device["ip"]
+        if device.get("hostname") and device["hostname"] != "unknown":
+            label = f"{device['ip']:15} ({device['hostname']})"
+
+        print(f"\n{label}  {device['mac']}")
 
         if device["open_ports"]:
             for p in device["open_ports"]:
@@ -75,6 +81,7 @@ def main():
     parser.add_argument("-t", "--threads", type=int, default=100, help="Threads per host (default: 100)")
     parser.add_argument("--export", help="Export results to JSON file")
     parser.add_argument("--no-banners", action="store_true", help="Skip banner grabbing (faster)")
+    parser.add_argument("--no-hostnames", action="store_true", help="Skip hostname resolution (faster)")
     parser.add_argument("--sniff", action="store_true", help="Sniff live traffic from discovered devices (Ctrl+C to stop)")
     parser.add_argument("--iface", help="Interface for sniffing (default: auto)")
     parser.add_argument("--watch-arp", action="store_true", help="Watch for ARP spoofing (Ctrl+C to stop)")
@@ -88,6 +95,10 @@ def main():
     if not devices:
         print("No devices found.")
         return
+
+    if not args.no_hostnames:
+        print("Resolving hostnames...")
+        devices = resolve_hostnames(devices)
 
     print(f"Found {len(devices)} device(s).")
     hosts = [d["ip"] for d in devices]

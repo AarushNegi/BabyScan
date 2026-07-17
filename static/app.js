@@ -21,11 +21,12 @@ function escapeHtml(str) {
 function renderDevice(device) {
   const openPorts = device.open_ports || [];
   const hasFindings = openPorts.length > 0;
+  const hasName = device.hostname && device.hostname !== "unknown";
 
   const portsHtml = openPorts.map(p => {
     const banner = p.banner ? `<div class="port-banner">${escapeHtml(p.banner.slice(0, 160))}</div>` : "";
     const cves = (p.cves || []).map(c =>
-      `<div class="port-cve">! ${escapeHtml(c.id || "unknown")} · severity ${escapeHtml(String(c.severity || "?"))} · score ${escapeHtml(String(c.score ?? "?"))}</div>`
+      `<div class="port-cve">! ${escapeHtml(c.id || "unknown")} \u00b7 severity ${escapeHtml(String(c.severity || "?"))} \u00b7 score ${escapeHtml(String(c.score ?? "?"))}</div>`
     ).join("");
 
     return `
@@ -42,6 +43,7 @@ function renderDevice(device) {
   return `
     <div class="device ${hasFindings ? "has-findings" : ""}">
       <div class="device-head">
+        ${hasName ? `<span class="device-name">${escapeHtml(device.hostname)}</span>` : ""}
         <span class="device-ip">${escapeHtml(device.ip)}</span>
         <span class="device-mac">${escapeHtml(device.mac)}</span>
         <span class="device-badge ${hasFindings ? "open" : ""}">${openPorts.length} open port${openPorts.length === 1 ? "" : "s"}</span>
@@ -62,7 +64,7 @@ async function runScan() {
   scanBtn.disabled = true;
   sweep.classList.add("active");
   results.innerHTML = "";
-  setStatus("discovering devices and scanning ports \u2014 this can take a moment...", "busy");
+  setStatus("discovering devices and resolving names \u2014 this can take a moment...", "busy");
 
   try {
     const resp = await fetch("/api/scan", {

@@ -3,6 +3,7 @@ from flask import Flask, render_template, request, jsonify
 from babyscan.discovery import arp_scan
 from babyscan.scanner import scan_hosts
 from babyscan.cve import enrich_with_cves
+from babyscan.hostname import resolve_hostnames
 from babyscan.utils import parse_ports
 
 app = Flask(__name__)
@@ -33,6 +34,8 @@ def api_scan():
     if not devices:
         return jsonify({"devices": [], "message": "No devices found. Run as Administrator?"})
 
+    devices = resolve_hostnames(devices)
+
     hosts = [d["ip"] for d in devices]
     scan_results = scan_hosts(hosts, ports, threads=100, banners=True)
 
@@ -43,6 +46,7 @@ def api_scan():
         {
             "ip": d["ip"],
             "mac": d["mac"],
+            "hostname": d.get("hostname", "unknown"),
             "open_ports": scan_results.get(d["ip"], []),
         }
         for d in devices

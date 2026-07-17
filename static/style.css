@@ -24,8 +24,6 @@ html, body {
   min-height: 100vh;
 }
 
-/* signature element: a slow phosphor sweep across the top of the viewport,
-   only animates while a scan is actively running */
 .scope-sweep {
   position: fixed;
   top: 0;
@@ -205,10 +203,21 @@ html, body {
   gap: 14px;
   flex-wrap: wrap;
 }
+.device-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
 .device-ip {
   font-family: var(--font-mono);
   font-size: 15px;
   font-weight: 600;
+  color: var(--muted);
+}
+.device-name + .device-ip {
+  font-size: 12px;
+  font-weight: 400;
 }
 .device-mac {
   font-family: var(--font-mono);
