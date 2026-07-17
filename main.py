@@ -81,7 +81,20 @@ def main():
     parser.add_argument("-t", "--threads", type=int, default=100, help="Threads per host (default: 100)")
     parser.add_argument("--export", help="Export results to JSON file")
     parser.add_argument("--no-banners", action="store_true", help="Skip banner grabbing (faster)")
-    parser.add_argument("--no-hostnames", action="store_true", help="Skip hostname resolution (faster)")
+    parser.add_argument(
+        "--no-hostnames",
+        action="store_true",
+        help="Skip all hostname resolution, including mDNS (fastest, no device names shown)",
+    )
+    parser.add_argument(
+        "--no-mdns",
+        action="store_true",
+        help=(
+            "Skip the mDNS/Bonjour fallback lookup and only use reverse DNS/NetBIOS "
+            "(faster than full hostname resolution, but misses phones, Macs, IoT, "
+            "printers, and other devices that don't answer classic reverse DNS)"
+        ),
+    )
     parser.add_argument("--sniff", action="store_true", help="Sniff live traffic from discovered devices (Ctrl+C to stop)")
     parser.add_argument("--iface", help="Interface for sniffing (default: auto)")
     parser.add_argument("--watch-arp", action="store_true", help="Watch for ARP spoofing (Ctrl+C to stop)")
@@ -97,8 +110,8 @@ def main():
         return
 
     if not args.no_hostnames:
-        print("Resolving hostnames...")
-        devices = resolve_hostnames(devices)
+        print("Resolving hostnames..." if args.no_mdns else "Resolving hostnames (DNS/NetBIOS + mDNS)...")
+        devices = resolve_hostnames(devices, use_mdns=not args.no_mdns)
 
     print(f"Found {len(devices)} device(s).")
     hosts = [d["ip"] for d in devices]

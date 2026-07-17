@@ -2,6 +2,7 @@ const scanBtn = document.getElementById("scanBtn");
 const networkInput = document.getElementById("network");
 const portsInput = document.getElementById("ports");
 const cveInput = document.getElementById("cve");
+const mdnsInput = document.getElementById("mdns");
 const statusLine = document.getElementById("statusText");
 const statusDot = document.getElementById("statusDot");
 const results = document.getElementById("results");
@@ -74,6 +75,7 @@ async function runScan() {
         network,
         ports: portsInput.value.trim() || "1-1000",
         cve: cveInput.checked,
+        mdns: mdnsInput.checked,
       }),
     });
 

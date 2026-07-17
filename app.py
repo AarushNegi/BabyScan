@@ -20,6 +20,7 @@ def api_scan():
     network = (data.get("network") or "").strip()
     port_range = (data.get("ports") or "1-1000").strip()
     include_cve = bool(data.get("cve", False))
+    use_mdns = bool(data.get("mdns", True))
 
     if not network:
         return jsonify({"error": "Network CIDR is required (e.g. 192.168.1.0/24)"}), 400
@@ -34,7 +35,7 @@ def api_scan():
     if not devices:
         return jsonify({"devices": [], "message": "No devices found. Run as Administrator?"})
 
-    devices = resolve_hostnames(devices)
+    devices = resolve_hostnames(devices, use_mdns=use_mdns)
 
     hosts = [d["ip"] for d in devices]
     scan_results = scan_hosts(hosts, ports, threads=100, banners=True)
